@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>麻雀成績管理アプリ</title>
+    <!-- Google Fonts -->
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap"
+        rel="stylesheet">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header glass-panel">
+            <div class="logo">
+                <span class="icon">🀄</span>
+                <h1>Mahjong Tracker</h1>
+            </div>
+            <p class="subtitle">運か。実力か。</p>
+        </header>
+
+        <main class="main-content">
+            <!-- Left Column: Inputs -->
+            <div class="left-col">
+                <!-- Matches Entry -->
+                <section class="card glass-panel section-entry fadeIn" style="animation-delay: 0.1s;">
+                    <h2>📝 成績入力</h2>
+                    <form id="match-form">
+                        <div class="form-group">
+                            <label for="match-date">対局日</label>
+                            <input type="date" id="match-date" required>
+                        </div>
+
+                        <div class="form-group game-type-group">
+                            <label>対局の種類</label>
+                            <div class="radio-group">
+                                <label class="radio-label">
+                                    <input type="radio" name="game-type" value="app" checked>
+                                    <span class="radio-custom"></span>
+                                    📱 maru-jan (100 Point)
+                                </label>
+                                <label class="radio-label">
+                                    <input type="radio" name="game-type" value="in-person">
+                                    <span class="radio-custom"></span>
+                                    🀄 対面 (200 Point)
+                                </label>
+                                <label class="radio-label">
+                                    <input type="radio" name="game-type" value="yakuman-shugi">
+                                    <span class="radio-custom"></span>
+                                    🎉 役満祝儀 (100 Point)
+                                </label>
+                            </div>
+                        </div>
+
+                        <p class="instruction">※参加しなかった方やプラマイゼロの方は0を入力するか空欄のままにしてください。</p>
+
+                        <div class="players-inputs grid-2">
+                            <div class="input-group">
+                                <label><span class="color-dot" style="background: var(--c-hayashi)"></span>林</label>
+                                <input type="number" step="0.1" name="hayashi" placeholder="0">
+                            </div>
+                            <div class="input-group">
+                                <label><span class="color-dot" style="background: var(--c-kishikawa)"></span>岸川</label>
+                                <input type="number" step="0.1" name="kishikawa" placeholder="0">
+                            </div>
+                            <div class="input-group">
+                                <label><span class="color-dot" style="background: var(--c-takeda)"></span>武田</label>
+                                <input type="number" step="0.1" name="takeda" placeholder="0">
+                            </div>
+                            <div class="input-group">
+                                <label><span class="color-dot" style="background: var(--c-machi)"></span>町</label>
+                                <input type="number" step="0.1" name="machi" placeholder="0">
+                            </div>
+                            <div class="input-group">
+                                <label><span class="color-dot" style="background: var(--c-imamaki)"></span>今牧</label>
+                                <input type="number" step="0.1" name="imamaki" placeholder="0">
+                            </div>
+                            <div class="input-group">
+                                <label><span class="color-dot" style="background: var(--c-sasajima)"></span>篠島</label>
+                                <input type="number" step="0.1" name="sasajima" placeholder="0">
+                            </div>
+                            <div class="input-group">
+                                <label><span class="color-dot" style="background: var(--c-imayoshi)"></span>今吉</label>
+                                <input type="number" step="0.1" name="imayoshi" placeholder="0">
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn-primary">成績を登録する</button>
+                    </form>
+                </section>
+
+                <!-- Yakuman Entry -->
+                <section class="card glass-panel section-yakuman fadeIn" style="animation-delay: 0.2s;">
+                    <h2>🔥 役満記録</h2>
+                    <form id="yakuman-form" class="flex-row">
+                        <select id="yakuman-player" required>
+                            <option value="" disabled selected>達成者を選択</option>
+                            <option value="hayashi">林</option>
+                            <option value="kishikawa">岸川</option>
+                            <option value="takeda">武田</option>
+                            <option value="machi">町</option>
+                            <option value="imamaki">今牧</option>
+                            <option value="sasajima">篠島</option>
+                            <option value="imayoshi">今吉</option>
+                        </select>
+                        <select id="yakuman-year-input"
+                            style="font-size:0.9rem; padding:0.4rem; background:var(--bg-lighter); color:white; border:1px solid rgba(255,255,255,0.1); border-radius:4px; margin-left:0.5rem;"></select>
+                        <button type="submit" class="btn-secondary">役満を追加</button>
+                    </form>
+
+                    <div class="yakuman-list-container">
+                        <h3>🏆 役満回数ランキング
+                            <select id="yakuman-view-year" onchange="renderYakuman()"
+                                style="font-size:0.8rem; padding:2px; margin-left:8px; background:var(--bg-lighter); color:white; border:1px solid rgba(255,255,255,0.1); border-radius:4px;"></select>
+                        </h3>
+                        <ul id="yakuman-list" class="yakuman-list">
+                            <!-- JS injected -->
+                        </ul>
+                    </div>
+                </section>
+
+                <!-- Match History -->
+                <section class="card glass-panel section-history fadeIn" style="animation-delay: 0.3s; flex: 1;">
+                    <h2>🕒 過去の成績</h2>
+                    <div class="history-list-container">
+                        <ul id="history-list" class="history-list">
+                            <!-- JS injected -->
+                        </ul>
+                    </div>
+                    <button id="clear-data-btn" class="btn-danger mt-3">データを全消去</button>
+                </section>
+            </div>
+
+            <!-- Right Column: Results & Graphs -->
+            <div class="right-col">
+                <!-- Filter Controls -->
+                <div class="filter-controls glass-panel fadeIn">
+                    <button class="filter-btn active" data-filter="all">すべて</button>
+                    <button class="filter-btn" data-filter="app">📱 maru-janのみ</button>
+                    <button class="filter-btn" data-filter="in-person">🀄 対面のみ</button>
+                    <button class="filter-btn" data-filter="yakuman-shugi">🎉 役満祝儀のみ</button>
+                </div>
+
+                <div class="date-filter-controls glass-panel fadeIn">
+                    <div class="date-inputs">
+                        <label>集計期間：</label>
+                        <input type="month" id="filter-start-month">
+                        <span>〜</span>
+                        <input type="month" id="filter-end-month">
+                        <button id="btn-latest" class="btn-secondary"
+                            style="margin-left:8px; padding:0.4rem 0.8rem; font-size:0.8rem;">最新まで</button>
+                        <button id="btn-all-dates" class="btn-secondary"
+                            style="margin-left:4px; padding:0.4rem 0.8rem; font-size:0.8rem;">すべて</button>
+                    </div>
+                </div>
+
+                <!-- Payment Table -->
+                <section class="card glass-panel section-payments fadeIn" style="animation-delay: 0.2s;">
+                    <div class="section-title-wrapper">
+                        <h2>💰 累計 支払い・成績表</h2>
+                        <span class="badge">レート: maru-jan 100 / 対面 200 / 祝儀 100 Point</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="results-table">
+                            <thead>
+                                <tr>
+                                    <th>順位</th>
+                                    <th>メンバー</th>
+                                    <th class="text-right">平均順位</th>
+                                    <th class="text-right">累計ポイント</th>
+                                    <th class="text-right">支払い/受け取り</th>
+                                </tr>
+                            </thead>
+                            <tbody id="results-body">
+                                <!-- JS injected -->
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- Chart container -->
+                <section class="card glass-panel section-chart fadeIn"
+                    style="animation-delay: 0.3s; flex-grow: 1; margin-bottom: 1.5rem;">
+                    <h2>📈 成績推移グラフ (ポイント)</h2>
+                    <div class="chart-wrapper">
+                        <canvas id="scoreChart"></canvas>
+                    </div>
+                </section>
+
+                <!-- Weekly Payment Table -->
+                <section class="card glass-panel section-weekly fadeIn" style="animation-delay: 0.4s;">
+                    <h2>📅 週次集計</h2>
+                    <div id="weekly-container" class="weekly-container">
+                        <!-- JS injected -->
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <!-- App Logic -->
+    <script src="app.js"></script>
+</body>
+
+</html>
