@@ -130,8 +130,10 @@ if (document.readyState === 'loading') {
     initApp();
 }
 
-function triggerRender() {
-    window.weeklyPage = 1;
+function triggerRender(preservePage = false) {
+    if (!preservePage) {
+        window.weeklyPage = 1;
+    }
     renderYakuman();
     renderHistory();
     renderResults();
@@ -553,9 +555,6 @@ function getCumulativeStats() {
                 if (!isYakumanShugi) {
                     stats[playerId].rankSum += rank;
                     stats[playerId].playCount += 1;
-                }
-                
-                if (match.date >= '2026-03-23') {
                     stats[playerId].participationDates.add(match.date);
                 }
             }
@@ -894,9 +893,6 @@ window.resetWeekly = function () {
 window.toggleSettlement = function (checkbox) {
     const isChecked = checkbox.checked;
     const key = checkbox.dataset.key;
-    const payer = checkbox.dataset.payer;
-    const receiver = checkbox.dataset.receiver;
-    const sortKey = parseInt(checkbox.dataset.sortkey, 10);
 
     // Apply to current
     if (isChecked) {
@@ -905,21 +901,8 @@ window.toggleSettlement = function (checkbox) {
         delete appState.settlements[key];
     }
 
-    // Apply to historical/future matching settlements
-    if (window.currentSettlements) {
-        window.currentSettlements.forEach(s => {
-            if (s.payer.id === payer && s.receiver.id === receiver) {
-                if (isChecked && s.sortKey <= sortKey) {
-                    appState.settlements[s.key] = true;
-                } else if (!isChecked && s.sortKey >= sortKey) {
-                    delete appState.settlements[s.key];
-                }
-            }
-        });
-    }
-
     saveData();
-    triggerRender();
+    triggerRender(true);
 };
 
 function renderChart() {
@@ -928,6 +911,7 @@ function renderChart() {
     // Prepare Data
     // X-axis: Dates (cumulative)
     // Create an initial state of 0 points for everyone before the first match
+    const isMobile = window.innerWidth <= 768;
     const labels = ['開始時'];
     const datasets = playersConfig.map(p => ({
         label: p.name,
@@ -936,8 +920,8 @@ function renderChart() {
         backgroundColor: p.color,
         tension: 0.3, // smooth curves
         borderWidth: 2,
-        pointRadius: 2,
-        pointHoverRadius: 4
+        pointRadius: 0,
+        pointHoverRadius: isMobile ? 0 : 4
     }));
 
     const runningTotals = {};
@@ -994,9 +978,9 @@ function renderChart() {
                     position: 'top',
                     labels: {
                         usePointStyle: true,
-                        boxWidth: 8,
-                        padding: 15,
-                        font: { size: 12 }
+                        boxWidth: isMobile ? 6 : 8,
+                        padding: isMobile ? 8 : 15,
+                        font: { size: isMobile ? 10 : 12 }
                     }
                 },
                 tooltip: {

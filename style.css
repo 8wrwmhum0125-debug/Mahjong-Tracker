@@ -697,6 +697,14 @@ button {
     gap: 0.75rem;
     margin-bottom: 0.4rem;
     color: #cbd5e1;
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 6px;
+    transition: background 0.2s ease;
+}
+
+.settlement-item:hover {
+    background: rgba(255, 255, 255, 0.05);
 }
 
 .settlement-grid {
@@ -728,9 +736,10 @@ button {
 
 .settlement-item input[type="checkbox"] {
     accent-color: var(--primary);
-    width: 16px;
-    height: 16px;
+    width: 22px;
+    height: 22px;
     cursor: pointer;
+    flex-shrink: 0;
 }
 
 .settlement-checked {
@@ -817,6 +826,29 @@ button {
     }
 
     .grid-2 {
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0.5rem;
+    }
+
+    .grid-2 label {
+        font-size: 0.75rem;
+        margin-bottom: 0.2rem;
+    }
+
+    .grid-2 input[type="number"] {
+        padding: 0.5rem;
+        font-size: 0.85rem;
+    }
+
+    .results-table th,
+    .results-table td {
+        padding: 0.4rem 0.2rem;
+        font-size: 0.75rem;
+        word-break: keep-all;
+    }
+
+    .badge {
+        font-size: 0.65rem;
+        padding: 0.2rem 0.4rem;
     }
 }
