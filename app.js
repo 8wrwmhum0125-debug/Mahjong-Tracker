@@ -14,6 +14,9 @@ const YEN_RATE_IN_PERSON = 200; // 1 point = 200 yen
 const YEN_RATE_YAKUMAN_SHUGI = 100; // 1 point = 100 yen
 const STORAGE_KEY = 'mahjong_tracker_data';
 
+const JSONBIN_URL = "https://api.jsonbin.io/v3/b/69c07493b7ec241ddc923cc7";
+const JSONBIN_MASTER_KEY = "$2a$10$SH0Dl/2I/zgez6q9CE8qd.ysiVJh6voELxDp.eaa/h2nNichKakbW";
+
 // Safe Storage Wrapper (Mobile WebViews often block localStorage and throw an error)
 const safeStorage = {
     getItem(key) {
@@ -51,7 +54,7 @@ let chartInstance = null;
 // Pagination State
 window.weeklyPage = 1;
 
-function initApp() {
+async function initApp() {
     try {
         // Safe Date Setting (Avoid valueAsDate compatibility issues on iOS)
         const dateInput = document.getElementById('match-date');
@@ -64,7 +67,7 @@ function initApp() {
         }
 
         // Load Data
-        loadData();
+        await loadData();
 
         // Initial Render
         renderYakuman();
@@ -137,65 +140,108 @@ function triggerRender() {
 }
 
 // Load/Save Data
-function loadData() {
-    const data = safeStorage.getItem(STORAGE_KEY);
-    if (data) {
-        try {
-            let parsed = JSON.parse(data);
-
-            // Migrate from oldest version where data was just an array of matches
-            if (Array.isArray(parsed)) {
-                appState = {
-                    matches: parsed,
-                    yakuman: {},
-                    settlements: {}
-                };
-                saveData();
-            } else if (parsed && typeof parsed === 'object') {
-                appState = parsed;
-                // Ensure all keys exist to prevent undefined errors
-                if (!appState.matches || !Array.isArray(appState.matches)) appState.matches = [];
-                if (!appState.yakuman) appState.yakuman = {};
-                if (!appState.settlements) appState.settlements = {};
-
-                // Migrate Yakuman to yearly structure
-                const keys = Object.keys(appState.yakuman);
-                if (keys.length > 0 && typeof appState.yakuman[keys[0]] === 'number') {
-                    const currentYear = new Date().getFullYear().toString();
-                    const migrated = { [currentYear]: appState.yakuman };
-                    appState.yakuman = migrated;
-                    saveData();
-                }
-
-                // Migrate settlements to remove amount from key format
-                let settlementsMigrated = false;
-                const newSettlements = {};
-                Object.keys(appState.settlements).forEach(k => {
-                    const parts = k.split('_');
-                    if (parts.length === 5 && parts[0] === 'settle') {
-                        // old format: settle_sortKey_payer_receiver_amount
-                        const newKey = `settle_${parts[1]}_${parts[2]}_${parts[3]}`;
-                        newSettlements[newKey] = true;
-                        settlementsMigrated = true;
-                    } else {
-                        newSettlements[k] = true;
-                    }
-                });
-                if (settlementsMigrated) {
-                    appState.settlements = newSettlements;
-                    saveData();
-                }
+async function loadData() {
+    try {
+        const response = await fetch(JSONBIN_URL + "/latest", {
+            headers: {
+                "X-Master-Key": JSONBIN_MASTER_KEY
             }
-        } catch (e) {
-            console.error('Failed to parse local storage data', e);
-            // Fallback to empty state on critical corruption
-            appState = { matches: [], yakuman: {}, settlements: {} };
+        });
+        
+        if (!response.ok) throw new Error("Network response was not ok");
+        
+        const jsonResponse = await response.json();
+        let cloudData = jsonResponse.record;
+
+        const localDataRaw = safeStorage.getItem(STORAGE_KEY);
+        if (localDataRaw) {
+            try {
+                const localData = JSON.parse(localDataRaw);
+                // Migrating old local data to cloud on first load
+                if ((!cloudData || !cloudData.matches || cloudData.matches.length === 0) &&
+                    Array.isArray(localData.matches) && localData.matches.length > 0) {
+                    appState = processDataMigrations(localData);
+                    await saveData(); 
+                    return;
+                }
+            } catch (e) {
+                console.error("Local data parse error during migration", e);
+            }
         }
+
+        appState = processDataMigrations(cloudData || { matches: [], yakuman: {}, settlements: {} });
+        safeStorage.setItem(STORAGE_KEY, JSON.stringify(appState)); // Cache locally
+        
+    } catch (error) {
+        console.error("Cloud Load Error:", error);
+        const local = safeStorage.getItem(STORAGE_KEY);
+        if (local) appState = processDataMigrations(JSON.parse(local));
     }
 }
 
-function saveData() {
+function processDataMigrations(parsed) {
+    let state = { matches: [], yakuman: {}, settlements: {} };
+    if (Array.isArray(parsed)) {
+        state.matches = parsed;
+    } else if (parsed && typeof parsed === 'object') {
+        state = parsed;
+        if (!state.matches || !Array.isArray(state.matches)) state.matches = [];
+        if (!state.yakuman) state.yakuman = {};
+        if (!state.settlements) state.settlements = {};
+
+        const keys = Object.keys(state.yakuman);
+        if (keys.length > 0 && typeof state.yakuman[keys[0]] === 'number') {
+            const currentYear = new Date().getFullYear().toString();
+            state.yakuman = { [currentYear]: state.yakuman };
+        }
+
+        const newSettlements = {};
+        Object.keys(state.settlements).forEach(k => {
+            const parts = k.split('_');
+            if (parts.length === 5 && parts[0] === 'settle') {
+                const newKey = `settle_${parts[1]}_${parts[2]}_${parts[3]}`;
+                newSettlements[newKey] = true;
+            } else {
+                newSettlements[k] = true;
+            }
+        });
+        state.settlements = newSettlements;
+    }
+    return state;
+}
+
+let isSaving = false;
+async function saveData() {
     safeStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
+    
+    if (isSaving) return;
+    isSaving = true;
+    
+    // UI indicator
+    const titleEl = document.querySelector('.logo h1');
+    const originalTitle = titleEl ? titleEl.innerText : 'Mahjong Tracker';
+    if (titleEl) titleEl.innerText = '保存中...';
+    
+    try {
+        const response = await fetch(JSONBIN_URL, {
+            method: "PUT",
+            headers: {
+                "Content-Type": "application/json",
+                "X-Master-Key": JSONBIN_MASTER_KEY
+            },
+            body: JSON.stringify(appState)
+        });
+        
+        if (!response.ok) {
+            console.error("Cloud save failed");
+            alert("クラウドへの保存に失敗しました。時間をおいて再試行してください。");
+        }
+    } catch (error) {
+        console.error("Save Error:", error);
+    } finally {
+        isSaving = false;
+        if (titleEl) titleEl.innerText = originalTitle;
+    }
 }
 
 // Form Handlers
@@ -465,7 +511,7 @@ function renderHistory() {
 function getCumulativeStats() {
     const stats = {};
     playersConfig.forEach(p => {
-        stats[p.id] = { point: 0, yen: 0, rankSum: 0, playCount: 0 };
+        stats[p.id] = { point: 0, yen: 0, rankSum: 0, playCount: 0, participationDates: new Set() };
     });
 
     const matches = getFilteredMatches();
@@ -508,6 +554,10 @@ function getCumulativeStats() {
                     stats[playerId].rankSum += rank;
                     stats[playerId].playCount += 1;
                 }
+                
+                if (match.date >= '2026-03-23') {
+                    stats[playerId].participationDates.add(match.date);
+                }
             }
         }
     });
@@ -529,7 +579,8 @@ function renderResults() {
             point: stats[p.id].point,
             yen: stats[p.id].yen,
             avgRank: avgRank,
-            playCount: stats[p.id].playCount
+            playCount: stats[p.id].playCount,
+            participationDays: stats[p.id].participationDates ? stats[p.id].participationDates.size : 0
         };
     }).sort((a, b) => b.point - a.point);
 
@@ -544,7 +595,6 @@ function renderResults() {
         else if (rankStr === 3) rankClass = 'rank-3';
 
         // Value signs
-        const avgRankStr = item.playCount > 0 ? item.avgRank.toFixed(2) : '-';
         const ptStr = (item.point > 0 ? '+' : '') + item.point.toFixed(1);
         const yenStr = (item.yen > 0 ? '+' : '') + item.yen.toLocaleString() + ' Point';
         const valClass = item.point > 0 ? 'val-positive' : (item.point < 0 ? 'val-negative' : 'val-zero');
@@ -553,9 +603,9 @@ function renderResults() {
             <td class="${rankClass}">${rankStr}位</td>
             <td>
                 <span class="color-dot" style="background: ${item.color}"></span>
-                ${item.name} <span style="font-size:0.7em;color:var(--text-muted)">(${item.playCount}対局)</span>
+                ${item.name}
             </td>
-            <td class="text-right">${avgRankStr}</td>
+            <td class="text-right">${item.participationDays}</td>
             <td class="text-right ${valClass}">${ptStr} jan</td>
             <td class="text-right ${valClass}">${yenStr}</td>
         `;
@@ -886,8 +936,8 @@ function renderChart() {
         backgroundColor: p.color,
         tension: 0.3, // smooth curves
         borderWidth: 2,
-        pointRadius: 4,
-        pointHoverRadius: 6
+        pointRadius: 2,
+        pointHoverRadius: 4
     }));
 
     const runningTotals = {};
