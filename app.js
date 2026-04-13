@@ -609,7 +609,7 @@ function renderResults() {
         // Value signs
         const ptStr = (item.point > 0 ? '+' : '') + item.point.toFixed(1);
         const yenStr = (item.yen > 0 ? '+' : '') + item.yen.toLocaleString() + ' Point';
-        const valClass = item.point > 0 ? 'val-positive' : (item.point < 0 ? 'val-negative' : 'val-zero');
+        const valClass = item.yen > 0 ? 'val-positive' : (item.yen < 0 ? 'val-negative' : 'val-zero');
 
         tr.innerHTML = `
             <td class="${rankClass}">${rankStr}位</td>
