@@ -213,10 +213,14 @@ function processDataMigrations(parsed) {
 }
 
 let isSaving = false;
+let saveQueued = false;
 async function saveData() {
     safeStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
     
-    if (isSaving) return;
+    if (isSaving) {
+        saveQueued = true;
+        return;
+    }
     isSaving = true;
     
     // UI indicator
@@ -225,19 +229,24 @@ async function saveData() {
     if (titleEl) titleEl.innerText = '保存中...';
     
     try {
-        const response = await fetch(JSONBIN_URL, {
-            method: "PUT",
-            headers: {
-                "Content-Type": "application/json",
-                "X-Master-Key": JSONBIN_MASTER_KEY
-            },
-            body: JSON.stringify(appState)
-        });
-        
-        if (!response.ok) {
-            console.error("Cloud save failed");
-            alert("クラウドへの保存に失敗しました。時間をおいて再試行してください。");
-        }
+        do {
+            saveQueued = false;
+            const stateToSave = JSON.stringify(appState);
+            const response = await fetch(JSONBIN_URL, {
+                method: "PUT",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Master-Key": JSONBIN_MASTER_KEY
+                },
+                body: stateToSave
+            });
+            
+            if (!response.ok) {
+                console.error("Cloud save failed");
+                alert("クラウドへの保存に失敗しました。時間をおいて再試行してください。");
+                break;
+            }
+        } while (saveQueued);
     } catch (error) {
         console.error("Save Error:", error);
     } finally {
@@ -353,11 +362,15 @@ window.decYakuman = function (playerId, year) {
 }
 
 function handleClearData() {
-    if (confirm("⚠️ 注意: 全ての対局記録と役満記録を完全に消去します。\nよろしいですか？")) {
+    const userInput = prompt("⚠️ 注意: 全てのデータが完全に消去されます。\n本当に消去してよろしい場合は「消去」と入力してください。");
+    if (userInput === "消去") {
         appState = { matches: [], yakuman: {}, settlements: {} };
         saveData();
         renderYakuman();
         triggerRender();
+        alert("データを全消去しました。");
+    } else if (userInput !== null) {
+        alert("全消去をキャンセルしました。");
     }
 }
 
@@ -581,7 +594,7 @@ function renderResults() {
             playCount: stats[p.id].playCount,
             participationDays: stats[p.id].participationDates ? stats[p.id].participationDates.size : 0
         };
-    }).sort((a, b) => b.point - a.point);
+    }).sort((a, b) => b.yen - a.yen);
 
     ranked.forEach((item, index) => {
         const tr = document.createElement('tr');
@@ -640,6 +653,8 @@ function renderWeekly() {
     // 1. Group ALL type-filtered matches into weeks (Calculate chronologically)
     const weeks = {};
     baseMatches.forEach(match => {
+        if (match.type === 'in-person') return; // 対面の支払いは別途行うため週次集計から除外
+
         const matchDate = new Date(match.date);
         const monday = getMondayOfDate(matchDate);
 
@@ -984,22 +999,7 @@ function renderChart() {
                     }
                 },
                 tooltip: {
-                    backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                    titleColor: '#f8fafc',
-                    bodyColor: '#e2e8f0',
-                    borderColor: 'rgba(255,255,255,0.1)',
-                    borderWidth: 1,
-                    callbacks: {
-                        label: function (context) {
-                            let label = context.dataset.label || '';
-                            if (label) label += ': ';
-                            if (context.parsed.y !== null) {
-                                const valStr = context.parsed.y.toLocaleString() + ' Point';
-                                label += context.parsed.y > 0 ? '+' + valStr : valStr;
-                            }
-                            return label;
-                        }
-                    }
+                    enabled: false
                 }
             },
             scales: {
