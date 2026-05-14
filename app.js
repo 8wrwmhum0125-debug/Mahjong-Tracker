@@ -14,8 +14,7 @@ const YEN_RATE_IN_PERSON = 200; // 1 point = 200 yen
 const YEN_RATE_YAKUMAN_SHUGI = 100; // 1 point = 100 yen
 const STORAGE_KEY = 'mahjong_tracker_data';
 
-const JSONBIN_URL = "https://api.jsonbin.io/v3/b/69c07493b7ec241ddc923cc7";
-const JSONBIN_MASTER_KEY = "$2a$10$SH0Dl/2I/zgez6q9CE8qd.ysiVJh6voELxDp.eaa/h2nNichKakbW";
+const GAS_URL = "https://script.google.com/macros/s/AKfycbydej4v5rrrOYqmc8QfOXn-_m4OBHOjKFFtcwFqiU3k1_dfXXOhL5dXSaajSsrhvxvN6Q/exec";
 
 // Safe Storage Wrapper (Mobile WebViews often block localStorage and throw an error)
 const safeStorage = {
@@ -143,41 +142,47 @@ function triggerRender(preservePage = false) {
 
 // Load/Save Data
 async function loadData() {
-    try {
-        const response = await fetch(JSONBIN_URL + "/latest", {
-            headers: {
-                "X-Master-Key": JSONBIN_MASTER_KEY
-            }
-        });
-        
-        if (!response.ok) throw new Error("Network response was not ok");
-        
-        const jsonResponse = await response.json();
-        let cloudData = jsonResponse.record;
+    let cloudData = null;
+    let localData = null;
 
+    try {
         const localDataRaw = safeStorage.getItem(STORAGE_KEY);
         if (localDataRaw) {
-            try {
-                const localData = JSON.parse(localDataRaw);
-                // Migrating old local data to cloud on first load
-                if ((!cloudData || !cloudData.matches || cloudData.matches.length === 0) &&
-                    Array.isArray(localData.matches) && localData.matches.length > 0) {
-                    appState = processDataMigrations(localData);
-                    await saveData(); 
-                    return;
-                }
-            } catch (e) {
-                console.error("Local data parse error during migration", e);
-            }
+            localData = JSON.parse(localDataRaw);
         }
+    } catch(e) {
+        console.error("Local load error", e);
+    }
 
-        appState = processDataMigrations(cloudData || { matches: [], yakuman: {}, settlements: {} });
-        safeStorage.setItem(STORAGE_KEY, JSON.stringify(appState)); // Cache locally
+    try {
+        const response = await fetch(GAS_URL);
         
+        if (response.ok) {
+            const jsonResponse = await response.json();
+            cloudData = jsonResponse.record;
+        }
     } catch (error) {
         console.error("Cloud Load Error:", error);
-        const local = safeStorage.getItem(STORAGE_KEY);
-        if (local) appState = processDataMigrations(JSON.parse(local));
+    }
+
+    const localTime = localData ? (localData.lastUpdated || 0) : -1;
+    const cloudTime = cloudData ? (cloudData.lastUpdated || 0) : -1;
+    const localMatches = localData && localData.matches ? localData.matches.length : 0;
+    const cloudMatches = cloudData && cloudData.matches ? cloudData.matches.length : 0;
+
+    if (localData && (!cloudData || localTime > cloudTime || (localTime === cloudTime && localMatches > cloudMatches))) {
+        // Local is newer or better
+        appState = processDataMigrations(localData);
+        if (cloudData && localTime > cloudTime) {
+            saveData(); // Attempt background sync
+        }
+    } else if (cloudData) {
+        // Cloud is newer
+        appState = processDataMigrations(cloudData);
+        safeStorage.setItem(STORAGE_KEY, JSON.stringify(appState)); // Update local cache
+    } else {
+        // Both failed or empty
+        appState = { matches: [], yakuman: {}, settlements: {}, lastUpdated: Date.now() };
     }
 }
 
@@ -209,12 +214,14 @@ function processDataMigrations(parsed) {
         });
         state.settlements = newSettlements;
     }
+    if (!state.lastUpdated) state.lastUpdated = 0;
     return state;
 }
 
 let isSaving = false;
 let saveQueued = false;
 async function saveData() {
+    appState.lastUpdated = Date.now();
     safeStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
     
     if (isSaving) {
@@ -225,25 +232,35 @@ async function saveData() {
     
     // UI indicator
     const titleEl = document.querySelector('.logo h1');
-    const originalTitle = titleEl ? titleEl.innerText : 'Mahjong Tracker';
+    const originalTitle = (titleEl && titleEl.innerText !== '保存中...') ? titleEl.innerText : 'Mahjong Tracker';
     if (titleEl) titleEl.innerText = '保存中...';
     
     try {
         do {
             saveQueued = false;
             const stateToSave = JSON.stringify(appState);
-            const response = await fetch(JSONBIN_URL, {
-                method: "PUT",
-                headers: {
-                    "Content-Type": "application/json",
-                    "X-Master-Key": JSONBIN_MASTER_KEY
-                },
-                body: stateToSave
-            });
             
-            if (!response.ok) {
-                console.error("Cloud save failed");
-                alert("クラウドへの保存に失敗しました。時間をおいて再試行してください。");
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            
+            try {
+                const response = await fetch(GAS_URL, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "text/plain"
+                    },
+                    body: stateToSave,
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                
+                if (!response.ok) {
+                    console.warn("Cloud save skipped/failed. Data safely stored locally.");
+                    break;
+                }
+            } catch (fetchErr) {
+                clearTimeout(timeoutId);
+                console.warn("Cloud connection error. Data safely stored locally.");
                 break;
             }
         } while (saveQueued);
